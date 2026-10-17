@@ -1,4 +1,5 @@
 # CATopalian JS Canvas Billiards
+A Fun expression of physics building our Billiards JavaScript Game :-)
 
 ---
 
