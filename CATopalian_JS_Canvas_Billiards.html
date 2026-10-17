@@ -1,0 +1,405 @@
+<!-- Dedicated to God the Father -->
+<!-- All Rights Reserved Christopher Andrew Topalian Copyright 2000-2026 -->
+<!-- https://github.com/ChristopherTopalian -->
+<!-- https://github.com/ChristopherAndrewTopalian -->
+<!-- CATopalian_JS_Canvas_Billiards.html -->
+
+<!DOCTYPE html>
+<html>
+<head>
+<title> CATopalian JS Canvas Billiards </title>
+
+<meta charset = 'UTF-8'>
+
+<meta name = 'viewport' content = 'width = device-width, initial-scale = 1.0'>
+
+<link rel = "icon" href = "src/media/textures/icons/CATopalian_True_SI.webp" type = "image/png">
+
+<style>
+
+body
+{ 
+    background-color: #0a4f22; 
+    color: white; 
+    font-family: sans-serif; 
+    overflow: hidden; 
+    margin: 0; 
+    user-select: none; 
+}
+
+canvas
+{
+    display: block;
+}
+
+#ui
+{ 
+    position: absolute; 
+    top: 20px; 
+    left: 20px; 
+    background: rgba(0,0,0,0.6); 
+    padding: 15px; 
+    border: 2px solid #8b5a2b; 
+    border-radius: 8px; 
+    pointer-events: none;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<canvas id = "holodeck"></canvas>
+
+<script>
+
+// shortcuts.js
+
+function ge(whichId)
+{
+    let result = document.getElementById(whichId);
+    return result;
+}
+
+function ce(whichType)
+{
+    let result = document.createElement(whichType);
+    return result;
+}
+
+function ba(whichElement)
+{
+    let result = document.body.append(whichElement);
+    return result;
+}
+
+//----//
+
+const canvas = ge('holodeck');
+const ctx = canvas.getContext('2d');
+
+// THE HIGH-DPI ASPECT RATIO
+// Get the pixel ratio of the current display (e.g., 2 for Retina/4K TVs)
+const dpr = window.devicePixelRatio || 1;
+
+// Set the actual logical size of game stage
+const STAGE_WIDTH = window.innerWidth;
+const STAGE_HEIGHT = window.innerHeight;
+
+// Scale the canvas memory up to match the physical TV pixels
+canvas.width = STAGE_WIDTH * dpr;
+canvas.height = STAGE_HEIGHT * dpr;
+
+// Use CSS to lock the visual size to the window
+canvas.style.width = STAGE_WIDTH + 'px';
+canvas.style.height = STAGE_HEIGHT + 'px';
+
+// Tell the Canvas context to scale all our math up automatically
+ctx.scale(dpr, dpr);
+
+// GAME CONSTANTS
+const balls = [];
+const BALL_RADIUS = 15;
+const POCKET_RADIUS = BALL_RADIUS * 2.2; // Pockets are generous
+const FRICTION = 0.985; 
+
+let cueBall; 
+let isAiming = false;
+let mouseX = 0;
+let mouseY = 0;
+
+// THE 6 POCKETS
+const pockets = [
+    {
+        x: 0,
+        y: 0
+    },   // Top-Left
+
+    {
+        x: STAGE_WIDTH / 2,
+        y: -10
+    },  // Top-Center (pulled up slightly)
+    
+    {
+        x: STAGE_WIDTH, y: 0
+    },  // Top-Right
+    
+    {
+        x: 0,
+        y: STAGE_HEIGHT
+    },   // Bottom-Left
+    
+    { x: STAGE_WIDTH / 2, y: STAGE_HEIGHT + 10 },   // Bottom-Center (pulled down slightly)
+    
+    {
+        x: STAGE_WIDTH,
+        y: STAGE_HEIGHT
+    }   // Bottom-Right
+];
+
+class Ball
+{
+    constructor(x, y, color, isCue = false)
+    {
+        this.x = x;
+        this.y = y;
+        this.vx = 0;
+        this.vy = 0;
+        this.radius = BALL_RADIUS;
+        this.color = color;
+        this.isCue = isCue;
+    }
+
+    draw()
+    {
+        // Shadow
+        ctx.beginPath();
+        ctx.arc(this.x + 2, this.y + 3, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0,0,0,0.3)';
+        ctx.fill();
+
+        // Ball Color
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+        ctx.fillStyle = this.color;
+        ctx.fill();
+        
+        // 3D Glare
+        ctx.beginPath();
+        ctx.arc(this.x - 5, this.y - 5, this.radius / 3, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.4)';
+        ctx.fill();
+    }
+
+    update()
+    {
+        this.vx *= FRICTION;
+        this.vy *= FRICTION;
+
+        if (Math.abs(this.vx) < 0.05) this.vx = 0;
+        if (Math.abs(this.vy) < 0.05) this.vy = 0;
+
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // Wall bounces (Using STAGE dimensions now!)
+        if (this.x - this.radius <= 0)
+        {
+            this.x = this.radius; this.vx *= -1;
+        }
+        if (this.x + this.radius >= STAGE_WIDTH)
+        {
+            this.x = STAGE_WIDTH - this.radius; this.vx *= -1;
+        }
+        if (this.y - this.radius <= 0)
+        {
+            this.y = this.radius; this.vy *= -1;
+        }
+        if (this.y + this.radius >= STAGE_HEIGHT)
+        {
+            this.y = STAGE_HEIGHT - this.radius; this.vy *= -1;
+        }
+    }
+}
+
+function setupTable()
+{
+    let startX = STAGE_WIDTH * 0.65; 
+    let startY = STAGE_HEIGHT / 2;
+    let spacing = BALL_RADIUS * 2.05; 
+
+    let colors = ['#ffcc00', '#0000ff', '#ff0000', '#4b0082', '#ff8c00', '#008000', '#8b0000', '#111111', '#ffcc00', '#0000ff', '#ff0000', '#4b0082', '#ff8c00', '#008000', '#8b0000'];
+
+    let colorIndex = 0;
+
+    for (let row = 0; row < 5; row++)
+    {
+        for (let col = 0; col <= row; col++) {
+            let x = startX + row * (spacing * 0.866); 
+            let y = startY - (row * spacing / 2) + (col * spacing);
+            balls.push(new Ball(x, y, colors[colorIndex]));
+            colorIndex++;
+        }
+    }
+
+    cueBall = new Ball(STAGE_WIDTH * 0.25, STAGE_HEIGHT / 2, '#ffffff', true);
+    balls.push(cueBall);
+}
+
+// INTERACTIVITY
+window.addEventListener('mousedown', (e) => {
+    let dx = e.clientX - cueBall.x;
+    let dy = e.clientY - cueBall.y;
+    if (Math.sqrt(dx * dx + dy * dy) < cueBall.radius * 3)
+    {
+        isAiming = true;
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+    }
+});
+
+window.addEventListener('mousemove', (e) => {
+    if (isAiming)
+    {
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+    }
+});
+
+window.addEventListener('mouseup', (e) => {
+    if (isAiming)
+    {
+        let pullX = cueBall.x - mouseX;
+        let pullY = cueBall.y - mouseY;
+        cueBall.vx = pullX * 0.15;
+        cueBall.vy = pullY * 0.15;
+        isAiming = false;
+    }
+});
+
+// MATH ENGINE
+function resolveBallCollisions()
+{
+    for (let i = 0; i < balls.length; i++)
+    {
+        for (let j = i + 1; j < balls.length; j++)
+        {
+            let b1 = balls[i];
+            let b2 = balls[j];
+
+            let dx = b2.x - b1.x;
+            let dy = b2.y - b1.y;
+            let distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < b1.radius + b2.radius)
+            {
+                let overlap = (b1.radius + b2.radius) - distance;
+                let nx = dx / distance;
+                let ny = dy / distance;
+                
+                b1.x -= nx * (overlap / 2);
+                b1.y -= ny * (overlap / 2);
+                b2.x += nx * (overlap / 2);
+                b2.y += ny * (overlap / 2);
+
+                let relativeVx = b1.vx - b2.vx;
+                let relativeVy = b1.vy - b2.vy;
+                
+                let speedAlongNormal = (relativeVx * nx) + (relativeVy * ny);
+                
+                if (speedAlongNormal < 0) continue;
+
+                b1.vx -= speedAlongNormal * nx;
+                b1.vy -= speedAlongNormal * ny;
+                b2.vx += speedAlongNormal * nx;
+                b2.vy += speedAlongNormal * ny;
+            }
+        }
+    }
+}
+
+function resolvePockets()
+{
+    // Loop backwards because we are deleting items from the array
+    for (let i = balls.length - 1; i >= 0; i--)
+    {
+        let b = balls[i];
+        let inPocket = false;
+        
+        // Check distance to all 6 pockets
+        for (let p of pockets)
+        {
+            let dx = b.x - p.x;
+            let dy = b.y - p.y;
+
+            if (Math.sqrt(dx * dx + dy * dy) < POCKET_RADIUS)
+            {
+                inPocket = true;
+                break; // Stop checking pockets, it fell in!
+            }
+        }
+
+        if (inPocket)
+        {
+            if (b.isCue)
+            {
+                // Scratch. Reset the white ball
+                b.vx = 0;
+                b.vy = 0;
+                b.x = STAGE_WIDTH * 0.25;
+                b.y = STAGE_HEIGHT / 2;
+            }
+            else
+            {
+                // Delete the colored ball from the universe
+                balls.splice(i, 1);
+            }
+        }
+    }
+}
+
+// RENDERING
+function drawPockets()
+{
+    ctx.fillStyle = '#052210'; // Deep dark green/black hole
+    for (let p of pockets)
+    {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, POCKET_RADIUS, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+function drawAimingLine()
+{
+    if (isAiming)
+    {
+        ctx.beginPath();
+        ctx.moveTo(cueBall.x, cueBall.y);
+        ctx.lineTo(mouseX, mouseY);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.lineWidth = 4;
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.arc(mouseX, mouseY, 5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.fill();
+    }
+}
+
+function loop()
+{
+    ctx.fillStyle = '#0a4f22';
+    ctx.fillRect(0, 0, STAGE_WIDTH, STAGE_HEIGHT);
+
+    drawPockets();
+
+    resolveBallCollisions();
+    resolvePockets();
+
+    for (let i = 0; i < balls.length; i++)
+    {
+        balls[i].update();
+        balls[i].draw();
+    }
+
+    drawAimingLine();
+
+    requestAnimationFrame(loop);
+}
+
+// Ignite
+setupTable();
+loop();
+
+// Ensure UI scales if window resizes
+window.addEventListener('resize', () => { location.reload(); });
+
+</script>
+
+</body>
+
+</html>
+
